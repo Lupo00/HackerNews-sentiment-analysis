@@ -97,6 +97,12 @@ def from_comments_to_setiments(setiments,comments_text):
 app = Flask(__name__)
 @app.route('/sentiment',methods=['GET'])
 def hello_world():
+	if  len(sys.argv) < 2:
+		return "You didn't pass credantials of the AWS account ", 416
+	AWS_ACCESS_KEY_ID=sys.argv[0]
+	AWS_SECRET_ACCESS_KEY=sys.argv[1]
+	REGION="us-east-2" if len(sys.argv) < 3 else sys.argv[2]
+
 	comments = get_comments_of_stories(get_top_stories(),request.args.get('phrase'))
 	if comments is "Error":
 		return "There is problem with getting data from Firebase", 416
