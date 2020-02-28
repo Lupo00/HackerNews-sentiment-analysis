@@ -3,17 +3,18 @@ import grequests
 import requests 
 import statistics
 from flask import Flask, request
+import sys
 
-AWS_ACCESS_KEY_ID="ENTER YOU KEY ID"
-AWS_SECRET_ACCESS_KEY="ENTER YOU SECERT KEY"
-REGION="ENTER IN WHICH REGION YOU WANT TO RUN THE SERVICE"
+if  len(sys.argv) < 2:
+		print("You didn't pass credantials of the AWS account ")
+		exit(0)
 
-HACKER_NEWS_URL="https://hacker-news.firebaseio.com/v0"
-FORMAT=".json?print=pretty""
+HACKER_NEWS_URL="https://hacker-news.firebaseio.com/v0/"
+FORMAT=".json?print=pretty"
 
 def get_top_stories():
 	try:
-		URL = HACKER_NEWS_URL+"/topstories"+FORMAT
+		URL = HACKER_NEWS_URL+"topstories"+FORMAT
 		r = requests.get(url = URL) 
 		return r.json() 
 	except:
@@ -25,7 +26,7 @@ def get_comments_of_stories(stories, filter):
 			return "Error"
 		urls = []
 		for story_id in stories:
-			urls.append(HACKER_NEWS_URL+str(story_id)+FORMAT)
+			urls.append(HACKER_NEWS_URL+"item/"+str(story_id)+FORMAT)
 		rs = (grequests.get(u) for u in urls)
 		comments_id = []
 		comments = grequests.map(rs)
@@ -41,7 +42,7 @@ def get_comments_of_comments_group(comments_id_group):
 	try:
 		urls = []
 		for comment_id in comments_id_group:
-			urls.append(HACKER_NEWS_URL+str(comment_id)+FORMAT)
+			urls.append(HACKER_NEWS_URL+"item/"+str(comment_id)+FORMAT)
 		rs = (grequests.get(u) for u in urls)
 		comments_text_group = []
 		new_comments_id_group = []
@@ -62,13 +63,13 @@ def get_all_comments(data,comments_text):
 	stop_to_get_data = False if data.get("new_comments_id") is None else True
 	while stop_to_get_data:
 		new_data = get_comments_of_comments_group(data.get("new_comments_id"))
-		if new_data is "Error":
+		if new_data == "Error":
 			return "Error"
 		comments_text.extend(new_data.get("comments_text"))
 		stop_to_get_data = False if not new_data.get("new_comments_id")  else True
 		data = new_data
 
-def from_comments_to_setiments(setiments,comments_text):
+def from_comments_to_setiments(setiments,comments_text,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY):
 	comments_text_without_none = []
 	for comment in comments_text:
 		if comment is not None:
@@ -79,7 +80,7 @@ def from_comments_to_setiments(setiments,comments_text):
 		first=idx*25
 		last=idx*25+24 if idx*25+24 < len(comments_text_without_none)-1 else len(comments_text)-1
 		try:
-			client = boto3.client('comprehend',region_name=REGION,aws_access_key_id=AWS_ACCESS_KEY_ID,aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
+			client = boto3.client('comprehend',region_name="us-west-2",aws_access_key_id=AWS_ACCESS_KEY_ID,aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
 			response = client.batch_detect_sentiment(
 					TextList=comments_text_without_none[first:last],
 					LanguageCode='en'
@@ -87,7 +88,6 @@ def from_comments_to_setiments(setiments,comments_text):
 		except:	
 			return "Error"
 		for setiment in response[u'ResultList']:
-			# print(setiment)
 			setiments["AMOUNT"] = setiments["AMOUNT"] + 1
 			setiments["POSITIVE"].append(setiment[u'SentimentScore'][u'Positive'])
 			setiments["NEGATIVE"].append(setiment[u'SentimentScore'][u'Negative'])
@@ -97,26 +97,24 @@ def from_comments_to_setiments(setiments,comments_text):
 app = Flask(__name__)
 @app.route('/sentiment',methods=['GET'])
 def hello_world():
-	if  len(sys.argv) < 2:
-		return "You didn't pass credantials of the AWS account ", 416
-	AWS_ACCESS_KEY_ID=sys.argv[0]
-	AWS_SECRET_ACCESS_KEY=sys.argv[1]
-	REGION="us-east-2" if len(sys.argv) < 3 else sys.argv[2]
+
+	AWS_ACCESS_KEY_ID=sys.argv[1]
+	AWS_SECRET_ACCESS_KEY=sys.argv[2]
 
 	comments = get_comments_of_stories(get_top_stories(),request.args.get('phrase'))
-	if comments is "Error":
+	if comments == "Error":
 		return "There is problem with getting data from Firebase", 416
 	
 	data = get_comments_of_comments_group(comments)
-	if data is "Error":
+	if data == "Error":
 		return "There is problem with getting data from Firebase", 416
 	
 	comments_text = []
-	if get_all_comments(data,comments_text) is "Error":
+	if get_all_comments(data,comments_text) == "Error":
 		return "There is problem with getting data from Firebase", 416
 
 	setiments = {"AMOUNT":0,"POSITIVE":[],"NEGATIVE":[],"NEUTRAL":[],"MIXED":[]}
-	if from_comments_to_setiments(setiments,comments_text) is "Error":
+	if from_comments_to_setiments(setiments,comments_text,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY) == "Error":
 		return "There is problem with AWS service", 416
 	if setiments['AMOUNT'] == 0:
 		return "There is no story titles which contain the phrase : "+request.args.get('phrase') , 416
